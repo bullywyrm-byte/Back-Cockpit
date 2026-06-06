@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Daniels Backstuben Cockpit</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
@@ -14,83 +14,153 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
-        const { ChefHat, Clock, Calendar, FileText, Save, Plus, Trash2, Users } = lucide;
+        const { useState, useEffect, useRef } = React;
+        const { ChefHat, Clock, Calendar, Save, Plus, Trash2, Users, FileText, ClipboardList, Download, Upload } = lucide;
 
         function App() {
-            // Globaler State - gespeichert im LocalStorage für Offline-Nutzung
+            // --- State ---
             const [activeTab, setActiveTab] = useState('recipes');
             const [recipes, setRecipes] = useState(() => JSON.parse(localStorage.getItem('cockpit_recipes') || '[]'));
             const [ovenTasks, setOvenTasks] = useState(() => JSON.parse(localStorage.getItem('cockpit_ovenTasks') || '[]'));
             const [shifts, setShifts] = useState(() => JSON.parse(localStorage.getItem('cockpit_shifts') || '[]'));
+            const [workTasks, setWorkTasks] = useState(() => JSON.parse(localStorage.getItem('cockpit_workTasks') || '[]'));
 
+            // Auto-Save
             useEffect(() => {
                 localStorage.setItem('cockpit_recipes', JSON.stringify(recipes));
                 localStorage.setItem('cockpit_ovenTasks', JSON.stringify(ovenTasks));
                 localStorage.setItem('cockpit_shifts', JSON.stringify(shifts));
-            }, [recipes, ovenTasks, shifts]);
+                localStorage.setItem('cockpit_workTasks', JSON.stringify(workTasks));
+            }, [recipes, ovenTasks, shifts, workTasks]);
 
             return (
                 <div className="min-h-screen flex flex-col md:flex-row">
-                    {/* Navigation */}
-                    <nav className="w-full md:w-64 bg-amber-600 text-white p-4 flex flex-col gap-2">
+                    <nav className="w-full md:w-64 bg-amber-700 text-white p-4 flex flex-col gap-2">
                         <div className="text-xl font-bold mb-6 flex items-center gap-2"><ChefHat /> Cockpit</div>
-                        <button onClick={() => setActiveTab('recipes')} className="p-3 text-left hover:bg-amber-700 rounded">Rezepte</button>
-                        <button onClick={() => setActiveTab('oven')} className="p-3 text-left hover:bg-amber-700 rounded">Ofenplan</button>
-                        <button onClick={() => setActiveTab('shifts')} className="p-3 text-left hover:bg-amber-700 rounded">Schichtplan</button>
+                        {[
+                            { id: 'recipes', icon: FileText, label: 'Rezepte' },
+                            { id: 'workplan', icon: ClipboardList, label: 'Arbeitsplan' },
+                            { id: 'oven', icon: Clock, label: 'Ofenplan' },
+                            { id: 'shifts', icon: Calendar, label: 'Schichtplan' },
+                            { id: 'backup', icon: Save, label: 'Backup' }
+                        ].map(item => (
+                            <button key={item.id} onClick={() => setActiveTab(item.id)} className={`p-3 text-left hover:bg-amber-800 rounded flex items-center gap-2 ${activeTab === item.id ? 'bg-amber-800' : ''}`}>
+                                <item.icon size={20} /> {item.label}
+                            </button>
+                        ))}
                     </nav>
 
-                    {/* Main */}
-                    <main className="flex-1 p-6 bg-gray-100">
+                    <main className="flex-1 p-6 bg-gray-100 overflow-y-auto">
                         {activeTab === 'recipes' && <RecipesView recipes={recipes} setRecipes={setRecipes} />}
+                        {activeTab === 'workplan' && <WorkplanView workTasks={workTasks} setWorkTasks={setWorkTasks} recipes={recipes} shifts={shifts} />}
                         {activeTab === 'oven' && <OvenView ovenTasks={ovenTasks} setOvenTasks={setOvenTasks} recipes={recipes} />}
                         {activeTab === 'shifts' && <ShiftsView shifts={shifts} setShifts={setShifts} />}
+                        {activeTab === 'backup' && <BackupView data={{recipes, ovenTasks, shifts, workTasks}} setRecipes={setRecipes} setOvenTasks={setOvenTasks} setShifts={setShifts} setWorkTasks={setWorkTasks} />}
                     </main>
                 </div>
             );
         }
 
-        // Sub-Komponente für Rezepte
+        // --- Sub Components ---
+
         function RecipesView({ recipes, setRecipes }) {
+            const [editing, setEditing] = useState(null);
+
             const addRecipe = () => {
-                const name = prompt("Name des Rezepts:");
-                if (name) setRecipes([...recipes, { id: Date.now(), name: name, ingredients: [] }]);
+                setEditing({ name: 'Neues Rezept', baseQuantity: 1, unit: 'Stk', ingredients: [], times: { teigruhe: 0, aufarbeitung: 0, stueckruhe: 0, gaerzeit: 0, backzeit: 0 } });
             };
+
+            const saveRecipe = () => {
+                if (editing.id) setRecipes(recipes.map(r => r.id === editing.id ? editing : r));
+                else setRecipes([...recipes, { ...editing, id: Date.now() }]);
+                setEditing(null);
+            };
+
             return (
                 <div className="bg-white p-6 rounded shadow">
                     <h2 className="text-2xl font-bold mb-4">Rezepte</h2>
-                    <button onClick={addRecipe} className="bg-green-600 text-white px-4 py-2 rounded mb-4">Neues Rezept</button>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <button onClick={addRecipe} className="bg-green-600 text-white px-4 py-2 rounded mb-4">Neues Rezept +</button>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         {recipes.map(r => (
-                            <div key={r.id} className="border p-4 rounded bg-gray-50">
-                                <h3 className="font-bold">{String(r.name)}</h3>
-                            </div>
+                            <button key={r.id} onClick={() => setEditing(r)} className="border p-4 rounded bg-gray-50 hover:bg-amber-50">
+                                {r.image && <img src={r.image} className="w-full h-32 object-cover mb-2 rounded" />}
+                                <div className="font-bold">{String(r.name)}</div>
+                            </button>
                         ))}
                     </div>
+                    {editing && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+                            <div className="bg-white p-6 rounded w-full max-w-lg">
+                                <input className="w-full border p-2 mb-2" value={editing.name} onChange={e => setEditing({...editing, name: e.target.value})} />
+                                <input type="file" onChange={e => {
+                                    const reader = new FileReader();
+                                    reader.onload = () => setEditing({...editing, image: reader.result});
+                                    reader.readAsDataURL(e.target.files[0]);
+                                }} />
+                                <div className="grid grid-cols-2 gap-2 mt-4">
+                                    <input type="number" placeholder="Backzeit (Min)" value={editing.times?.backzeit || 0} onChange={e => setEditing({...editing, times: {...editing.times, backzeit: Number(e.target.value)}})} className="border p-2" />
+                                </div>
+                                <button onClick={saveRecipe} className="bg-blue-600 text-white w-full p-2 mt-4">Speichern</button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         }
 
-        // Sub-Komponente für Ofen
         function OvenView({ ovenTasks, setOvenTasks, recipes }) {
+            const [form, setForm] = useState({ recipeId: '', startTime: '04:00' });
+            
+            const addTask = () => {
+                const recipe = recipes.find(r => r.id === Number(form.recipeId));
+                setOvenTasks([...ovenTasks, { id: Date.now(), recipeName: recipe.name, startTime: form.startTime, duration: recipe.times?.backzeit || 30 }]);
+            };
+
             return (
                 <div className="bg-white p-6 rounded shadow">
                     <h2 className="text-2xl font-bold mb-4">Ofenplan</h2>
-                    <div className="space-y-2">
-                        {ovenTasks.map(t => <div key={t.id} className="border-b p-2">{String(t.recipeName)} - {String(t.startTime)}</div>)}
+                    <div className="flex gap-2 mb-4">
+                        <select onChange={e => setForm({...form, recipeId: e.target.value})} className="border p-2">
+                            <option>Rezept wählen</option>
+                            {recipes.map(r => <option key={r.id} value={r.id}>{String(r.name)}</option>)}
+                        </select>
+                        <input type="time" onChange={e => setForm({...form, startTime: e.target.value})} className="border p-2" />
+                        <button onClick={addTask} className="bg-amber-600 text-white px-4 py-2 rounded">Planen</button>
                     </div>
+                    {ovenTasks.map(t => <div key={t.id} className="border-b p-2">{String(t.startTime)}: {String(t.recipeName)} ({String(t.duration)} Min)</div>)}
                 </div>
             );
         }
 
-        // Sub-Komponente für Schichtplan
         function ShiftsView({ shifts, setShifts }) {
             return (
                 <div className="bg-white p-6 rounded shadow">
                     <h2 className="text-2xl font-bold mb-4">Schichtplan</h2>
-                    <div className="space-y-2">
-                        {shifts.map(s => <div key={s.id} className="border-b p-2">{String(s.name)} am {String(s.date)}</div>)}
-                    </div>
+                    <button onClick={() => setShifts([...shifts, { id: Date.now(), name: 'Neuer Mitarbeiter', date: '2026-06-06' }])} className="bg-amber-600 text-white p-2 mb-2">Schicht hinzufügen</button>
+                    {shifts.map(s => <div key={s.id} className="border-b p-2">{String(s.name)}</div>)}
+                </div>
+            );
+        }
+
+        function WorkplanView({ workTasks, setWorkTasks, recipes, shifts }) {
+            return (
+                <div className="bg-white p-6 rounded shadow">
+                    <h2 className="text-2xl font-bold mb-4">Arbeitsplan</h2>
+                    <p>Hier kannst du den Tagesablauf koordinieren.</p>
+                </div>
+            );
+        }
+
+        function BackupView({ data, setRecipes, setOvenTasks, setShifts, setWorkTasks }) {
+            const download = () => {
+                const blob = new Blob([JSON.stringify(data)], {type: 'application/json'});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = 'backup.json'; a.click();
+            };
+            return (
+                <div className="bg-white p-6 rounded shadow">
+                    <h2 className="text-2xl font-bold mb-4">Backup</h2>
+                    <button onClick={download} className="bg-gray-800 text-white p-4 rounded">Backup herunterladen</button>
                 </div>
             );
         }
